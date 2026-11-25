@@ -14,7 +14,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
 from multiprocessing import Manager
 from logging.handlers import QueueListener, QueueHandler
-from CONSTANTS import (SAVE, INTERVAL, MAX_WORKERS, DB_CONFIG_PATH, DB_HOST,
+from CONSTANTS import (SAVE, INTERVAL, MAX_WORKERS, DB_CONFIG_PATH, DB_HOST, SW_ID,
                        DB_PORT, DB_DATABASE, DB_USER)
 
 
@@ -22,7 +22,8 @@ def _nan_to_none(value):
     """NaN -> None, so that the value is stored as NULL and not as 'NaN'."""
     return None if value is None or (isinstance(value, float) and np.isnan(value)) else float(value)
 
-SW_ID = 1
+# SW_ID comes from CONSTANTS: 4 for release 1.4.0 (Galileo E1/E5b and system
+# weighting), 3 for the e5a set, which reproduces release 1.3.0 (see SPP_DATASET).
 EP_ID = 1
 FRAME_ID = 4
 
@@ -140,7 +141,7 @@ def process_day(station: str, day: int, month: int, year: int, run_id: int) -> N
     remove_file(station, day, month, year, True)
 
 
-def tarea(station: str, day: int, month: int, year: int, run_id: int, log_queue):
+def task(station: str, day: int, month: int, year: int, run_id: int, log_queue):
     logger = logging.getLogger()
     logger.handlers = []
     logger.addHandler(QueueHandler(log_queue))
@@ -204,11 +205,11 @@ def main():
                  f"decimation {INTERVAL}s, {args.workers} processes")
 
     n_days = (args.end - args.start).days + 1
-    inicio = time.perf_counter()
+    t_start = time.perf_counter()
     try:
         with ProcessPoolExecutor(max_workers=args.workers) as executor:
             futures = [
-                executor.submit(tarea, station, d.day, d.month, d.year, run_id, log_queue)
+                executor.submit(task, station, d.day, d.month, d.year, run_id, log_queue)
                 for station in args.stations
                 for d in (args.start + datetime.timedelta(days=k) for k in range(n_days))
             ]
@@ -220,8 +221,8 @@ def main():
                 except Exception as e:
                     logging.error(f"[WORKER ERROR] {e}")
     finally:
-        tiempo = time.perf_counter() - inicio
-        logging.info(f"[MAIN] {len(args.stations) * n_days} station-days in {tiempo:.1f} s")
+        elapsed = time.perf_counter() - t_start
+        logging.info(f"[MAIN] {len(args.stations) * n_days} station-days in {elapsed:.1f} s")
         listener.stop()
 
 

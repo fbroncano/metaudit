@@ -1,5 +1,6 @@
 # Local credentials: never publish
 postgis.cfg
+postgis_e5a.cfg
 
 # Downloaded and generated data
 processor/downloads/

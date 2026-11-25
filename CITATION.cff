@@ -1,23 +1,24 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata below."
-title: "spp-diagnosing: SPP processing pipeline and characterisation analysis for the Spanish EPN stations"
+title: "metaudit: metadata-grouped residual audit, with the SPP pipeline audited over the Spanish EPN stations"
 type: software
 license: MIT
-repository-code: "https://github.com/fbroncano/spp-diagnosing"
-version: 1.0.0
-date-released: 2026-10-10
+repository-code: "https://github.com/fbroncano/metaudit"
+doi: 10.5281/zenodo.23282342
+version: 2.0.0
+date-released: 2026-11-13
 authors:
   - family-names: Broncano
     given-names: Fernando
     orcid: "https://orcid.org/0009-0001-8104-6232"
     affiliation: "Universidad de Extremadura"
-  - family-names: Rodríguez
-    given-names: Pablo G.
-    orcid: "https://orcid.org/0000-0001-8168-7892"
-    affiliation: "Universidad de Extremadura"
   - family-names: Botejara-Antúnez
     given-names: Manuel
     orcid: "https://orcid.org/0000-0003-2570-1658"
+    affiliation: "Universidad de Extremadura"
+  - family-names: Rodríguez
+    given-names: Pablo G.
+    orcid: "https://orcid.org/0000-0001-8168-7892"
     affiliation: "Universidad de Extremadura"
   - family-names: Caro
     given-names: Andrés
@@ -33,3 +34,22 @@ keywords:
   - EPN
   - data quality
   - instrument metadata
+  - residual audit
+  - Galileo
+references:
+  - type: article
+    title: "A Multi-Constellation Standard Point Positioning Pipeline and Its Validation over the Spanish Geodetic Network"
+    journal: "IEEE Access"
+    year: 2026
+    doi: 10.1109/ACCESS.2026.3751207
+    authors:
+      - family-names: Broncano
+        given-names: Fernando
+      - family-names: Rodríguez
+        given-names: Pablo G.
+      - family-names: Caro
+        given-names: Andrés
+      - family-names: Torrecilla-Pinero
+        given-names: Jesús A.
+      - family-names: Cuartero
+        given-names: Aurora

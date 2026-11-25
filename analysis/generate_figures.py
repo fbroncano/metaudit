@@ -1,12 +1,13 @@
 """Figures 3, 4 and 5 of the article.
 
 The three figures are drawn from the CSV files in `analysis/figure_data/`,
-without touching the PostGIS database, so they can be regenerated on any
-machine with the repository.
+written by `exportar_figuras.py`, without touching the PostGIS database, so
+they can be regenerated on any machine with the repository. Every number shown
+comes from those files; explanatory figures go in the captions.
 
     figures/Figure3.pdf  accuracy against reliability
-    figures/Figure4.pdf  the degradation affects Galileo and not GPS
-    figures/Figure5.pdf  CACE series around the antenna replacement
+    figures/Figure4.pdf  the degradation is specific to E1/E5a at the legacy antennas
+    figures/Figure5.pdf  CACE series around the antenna replacement, both Galileo pairs
 
 Figures 1 and 2 of the article (station map and pipeline diagram) were drawn by
 hand and are not produced by this script.
@@ -20,9 +21,9 @@ Design decisions worth keeping:
   - Panel b of Figure 3 is a range chart, not a four-point scatter: the range
     from the median to the 99th percentile turns the tail into length, which
     is the magnitude the argument of the section rests on.
-  - Panel a of Figure 4 is drawn without station labels, which were added
-    afterwards. The position of each station is exported to
-    `F4_panel_a_posiciones.csv` to place them.
+  - Figure 4 joins the E1/E5a and E1/E5b solutions of each degraded station
+    with an arrow: the same station and days with another frequency pair is
+    the evidence, so it is drawn as a movement and not as two scatters.
 """
 import os
 
@@ -138,13 +139,6 @@ def figura_3():
     ejes_a[0].text(-0.60, 0.60, "robust", transform=ejes_a[0].transAxes,
                    ha="left", va="center", fontsize=7.5, style="italic", color=APAGADO)
 
-    ejes_a[1].annotate(
-        f"daily maximum\n{miles(66071.657)} m (GPS)\n{miles(492455.639)} m (GEC)",
-        xy=(781.245, 3), xycoords="data", xytext=(0.24, 0.26), textcoords="axes fraction",
-        fontsize=7, color=TINTA_2, ha="left", va="center", linespacing=1.35,
-        arrowprops=dict(arrowstyle="-", color=APAGADO, lw=0.7,
-                        connectionstyle="arc3,rad=0.25"),
-    )
 
     fig.text(0.018, 0.975, "(a)", fontsize=10, fontweight="bold", va="top")
     fig.legend(
@@ -183,18 +177,16 @@ def figura_3():
         ax.plot([r["mediana_3d"]], [yi], marker="o", markersize=7, color=color, zorder=4)
         ax.plot([r["p99_3d"]], [yi], marker="o", markersize=7, markerfacecolor=pastel,
                 markeredgecolor=color, markeredgewidth=1.6, zorder=4)
-        # The maximum goes below its mark rather than to the right, where the
-        # BeiDou one (63.4) collided with the failed-days column.
-        ax.text(r["max_3d"], yi - 0.24, f"max {r['max_3d']:.1f}", fontsize=7,
-                color=APAGADO, va="top", ha="center")
 
     ax.set_xscale("log")
-    ax.set_xlim(0.62, 92)
+    ax.set_xlim(0.8 * const["mediana_3d"].min(), 1.5 * const["max_3d"].max())
     ax.set_ylim(-1.0, len(filas) - 0.3)
     ax.set_yticks(yy)
     ax.set_yticklabels([n for n, _, _, _ in filas])
-    ax.set_xticks([1, 2, 5, 10, 20, 50])
-    ax.set_xticklabels(["1", "2", "5", "10", "20", "50"])
+    marcas = [m for m in [0.2, 0.5, 1, 2, 5, 10, 20, 50, 100]
+              if ax.get_xlim()[0] <= m <= ax.get_xlim()[1]]
+    ax.set_xticks(marcas)
+    ax.set_xticklabels([f"{m:g}" for m in marcas])
     ax.set_xlabel("Median 3D error  →  99th percentile (m), logarithmic", fontsize=8.5)
     ax.tick_params(length=2.5)
     limpiar(ax)
@@ -217,14 +209,6 @@ def figura_3():
         ax.text(x_sat, frac, f"{r['n_sat']:.1f}", transform=ax.transAxes,
                 fontsize=8, ha="center", va="center", color=TINTA_2)
 
-    ax.annotate(
-        "2.6× more satellites:\n+89 % median error,\nno day above 10 m",
-        xy=(const.loc["GEC", "mediana_3d"], 1.0), xycoords="data",
-        xytext=(0.66, 0.42), textcoords="data",
-        fontsize=7.5, color=TINTA_2, ha="left", va="center", linespacing=1.4,
-        arrowprops=dict(arrowstyle="-", color=APAGADO, lw=0.7,
-                        connectionstyle="arc3,rad=-0.3"),
-    )
 
     fig.text(0.018, 0.455, "(b)", fontsize=10, fontweight="bold", va="top")
 
@@ -235,128 +219,157 @@ def figura_3():
 
 
 # --------------------------------------------------------------------------
-# Figure 4: the degradation affects Galileo and not GPS
+# Figure 4: E1/E5a degrades Galileo at the legacy antennas, E1/E5b does not
 # --------------------------------------------------------------------------
+
+# Legacy antennas carry the warm fill; CACE, which replaced its legacy antenna
+# during the period, the cold one; the rest are open.
+ESTILO_ANTENA = {
+    "heredada": dict(marker="o", s=50, facecolors=CALIDO, edgecolors=CONTORNO,
+                     linewidths=1.3, zorder=5),
+    "sustituida": dict(marker="D", s=44, facecolors=FRIO, edgecolors=CONTORNO,
+                       linewidths=1.3, zorder=4),
+    "moderna": dict(marker="o", s=30, facecolors="none", edgecolors=APAGADO,
+                    linewidths=1.0, zorder=3),
+}
+
 
 def figura_4():
     est = pd.read_csv(os.path.join(DATOS, "F3_N1_por_estacion.csv"))
     ant = pd.read_csv(os.path.join(DATOS, "F5_por_antena.csv"))
 
     fig, (ax_a, ax_b) = plt.subplots(
-        1, 2, figsize=(8.25, 3.70), gridspec_kw=dict(width_ratios=[1.0, 1.0], wspace=0.30)
+        1, 2, figsize=(8.25, 3.70), gridspec_kw=dict(width_ratios=[1.0, 1.0], wspace=0.42)
     )
-    fig.subplots_adjust(left=0.085, right=0.975, top=0.92, bottom=0.175)
+    fig.subplots_adjust(left=0.085, right=0.975, top=0.86, bottom=0.155)
 
-    # ---- panel (a): scatter, without labels ------------------------------
-    estilo = {
-        "heredada": dict(marker="o", s=52, facecolors=CALIDO, edgecolors=CONTORNO,
-                         linewidths=1.3, zorder=5),
-        "sustituida": dict(marker="D", s=48, facecolors=FRIO, edgecolors=CONTORNO,
-                           linewidths=1.3, zorder=4),
-        "moderna": dict(marker="o", s=34, facecolors="none", edgecolors=APAGADO,
-                        linewidths=1.0, zorder=3),
-    }
-    for estado, kw in estilo.items():
+    # ---- panel (a): each station with E1/E5a and with E1/E5b --------------
+    # E1/E5a solutions with the antenna-status marker; E1/E5b solutions as
+    # small dark dots. The degraded stations are joined by an arrow, which
+    # carries the result: the same station, the same days, another frequency pair.
+    for estado, kw in ESTILO_ANTENA.items():
         sub = est[est["estado_antena"] == estado]
-        ax_a.scatter(sub["G"], sub["E"], **kw)
+        ax_a.scatter(sub["G_e5a"], sub["E_e5a"], **kw)
+    ax_a.scatter(est["G_e5b"], est["E_e5b"], marker="o", s=9, color=TINTA_2,
+                 linewidths=0, zorder=6)
+    for _, r in est[est["estado_antena"] != "moderna"].iterrows():
+        ax_a.annotate("", xy=(r["G_e5b"], r["E_e5b"]), xytext=(r["G_e5a"], r["E_e5a"]),
+                      arrowprops=dict(arrowstyle="-|>", color=APAGADO, lw=0.7,
+                                      shrinkA=4, shrinkB=2, mutation_scale=7),
+                      zorder=2)
+        ax_a.text(r["G_e5a"] + 0.012, r["E_e5a"], r["station_id"], fontsize=7,
+                  color=TINTA_2, ha="left", va="center")
 
-    lim = np.array([0.55, 1.45])
+    lim = np.array([0.15, 15])
     ax_a.plot(lim, lim, ls=(0, (5, 4)), color=NEUTRO, lw=0.9, zorder=1)
-    ax_a.set_xlim(*lim)
-    ax_a.set_ylim(0.3, 12.4)
+    ax_a.set_yscale("log")
+    ax_a.set_xlim(0.2, 0.75)
+    ax_a.set_ylim(*lim)
+    ax_a.set_yticks([0.2, 0.5, 1, 2, 5, 10])
+    ax_a.set_yticklabels(["0.2", "0.5", "1", "2", "5", "10"])
     ax_a.set_xlabel("Median 3D error, GPS (m)", fontsize=8.5)
     ax_a.set_ylabel("Median 3D error, Galileo (m)", fontsize=8.5)
     ax_a.tick_params(length=2.5)
     limpiar(ax_a)
+    ax_a.legend(
+        handles=[
+            Line2D([], [], marker="o", ls="none", markerfacecolor=CALIDO,
+                   markeredgecolor=CONTORNO, markeredgewidth=1.3, markersize=7,
+                   label="legacy antenna, E1/E5a"),
+            Line2D([], [], marker="D", ls="none", markerfacecolor=FRIO,
+                   markeredgecolor=CONTORNO, markeredgewidth=1.3, markersize=6,
+                   label="replaced in 2025, E1/E5a"),
+            Line2D([], [], marker="o", ls="none", markerfacecolor="none",
+                   markeredgecolor=APAGADO, markersize=6, label="other, E1/E5a"),
+            Line2D([], [], marker="o", ls="none", color=TINTA_2, markersize=3.5,
+                   label="all stations, E1/E5b"),
+        ],
+        loc="lower left", bbox_to_anchor=(-0.02, 1.0), ncol=2, frameon=False,
+        fontsize=7.3, handletextpad=0.3, columnspacing=1.0, borderaxespad=0.2,
+    )
 
-    # ---- panel (b): per antenna model -------------------------------------
-    ant = ant.sort_values("E/G", ascending=True).reset_index(drop=True)
+    # ---- panel (b): per antenna model, E1/E5a to E1/E5b ------------------
+    ant = ant.sort_values("EG_e5a", ascending=True).reset_index(drop=True)
     yb = np.arange(len(ant))
-    destacada = [v >= 2.0 for v in ant["E/G"]]
-    colores = [CALIDO if d else NEUTRO for d in destacada]
-    bordes = [CONTORNO if d else APAGADO for d in destacada]
-    grosores = [1.0 if d else 0.5 for d in destacada]
-    ax_b.barh(yb, ant["E/G"] - 1.0, left=1.0, color=colores, edgecolor=bordes,
-              linewidth=grosores, height=0.62, zorder=2)
+    for yi, r in ant.iterrows():
+        destacada = r["EG_e5a"] >= 2.0
+        ax_b.plot([r["EG_e5a"], r["EG_e5b"]], [yi, yi], color=APAGADO, lw=0.9, zorder=2)
+        ax_b.scatter([r["EG_e5a"]], [yi], marker="o", s=46 if destacada else 30,
+                     facecolors=CALIDO if destacada else "white",
+                     edgecolors=CONTORNO if destacada else APAGADO,
+                     linewidths=1.3 if destacada else 1.0, zorder=4)
+        ax_b.scatter([r["EG_e5b"]], [yi], marker="o", s=16, color=TINTA_2, zorder=5)
+        ax_b.text(max(r["EG_e5a"], r["EG_e5b"]) * 1.30, yi,
+                  f"{r['EG_e5a']:.2f} → {r['EG_e5b']:.2f}  ({r['n_est']})",
+                  va="center", ha="left", fontsize=7.5, color=TINTA_2)
 
-    etiquetas = [
-        f"{m} *" if m == "LEIAR25" else m for m in ant["antenna_type"]
-    ]
+    ax_b.axvline(1.0, color=APAGADO, lw=0.8, zorder=1)
+    ax_b.set_xscale("log")
+    ax_b.set_xlim(0.4, 150)
+    ax_b.set_xticks([0.5, 1, 2, 5, 10, 20])
+    ax_b.set_xticklabels(["0.5", "1", "2", "5", "10", "20"])
     ax_b.set_yticks(yb)
-    ax_b.set_yticklabels(etiquetas)
-    for yi, (v, n) in enumerate(zip(ant["E/G"], ant["n_est"])):
-        ax_b.text(v + 0.22, yi, f"{v:.2f}  ({n})", va="center", ha="left",
-                  fontsize=8, color=TINTA_2)
-
-    ax_b.axvline(1.0, color=APAGADO, lw=0.8, zorder=3)
-    ax_b.set_xlim(1.0, 13.2)
-    ax_b.set_ylim(-0.8, len(ant) + 0.25)
-    ax_b.set_xticks([2, 4, 6, 8, 10, 12])
-    ax_b.set_xlabel("E/G ratio of the median 3D error", fontsize=8.5)
-    ax_b.text(1.12, len(ant) - 0.25, "no degradation", fontsize=7.5, color=APAGADO,
+    ax_b.set_yticklabels(ant["antenna_type"])
+    ax_b.set_ylim(-0.7, len(ant) - 0.3)
+    ax_b.set_xlabel("E/G ratio of the median 3D error, logarithmic", fontsize=8.5)
+    ax_b.text(1.06, len(ant) - 0.45, "Galileo = GPS", fontsize=7, color=APAGADO,
               ha="left", va="center")
+    ax_b.legend(
+        handles=[
+            Line2D([], [], marker="o", ls="none", markerfacecolor=CALIDO,
+                   markeredgecolor=CONTORNO, markeredgewidth=1.3, markersize=7,
+                   label="E1/E5a"),
+            Line2D([], [], marker="o", ls="none", color=TINTA_2, markersize=4.5,
+                   label="E1/E5b"),
+        ],
+        loc="lower left", bbox_to_anchor=(-0.02, 1.0), ncol=2, frameon=False,
+        fontsize=7.5, handletextpad=0.3, columnspacing=1.2, borderaxespad=0.2,
+    )
     ax_b.tick_params(length=2.5)
     limpiar(ax_b)
 
-    fig.text(0.012, 0.975, "(a)", fontsize=10, fontweight="bold", va="top")
-    fig.text(0.512, 0.975, "(b)", fontsize=10, fontweight="bold", va="top")
-    fig.text(
-        0.975, 0.012,
-        "*  averages two sites that differ by a factor of three (LEON 3.36, SALA 1.19)",
-        fontsize=7.5, color=APAGADO, ha="right", va="bottom",
-    )
+    fig.text(0.012, 0.985, "(a)", fontsize=10, fontweight="bold", va="top")
+    fig.text(0.535, 0.985, "(b)", fontsize=10, fontweight="bold", va="top")
 
     destino = os.path.join(SALIDA, "Figure4.pdf")
     fig.savefig(destino, bbox_inches="tight", pad_inches=0.02)
-
-    # Position of each station in panel a, for labelling.
-    fig.canvas.draw()
-    filas = []
-    ancho, alto = fig.canvas.get_width_height()
-    for _, r in est.iterrows():
-        px, py = ax_a.transData.transform((r["G"], r["E"]))
-        fx, fy = fig.transFigure.inverted().transform((px, py))
-        filas.append({
-            "station_id": r["station_id"],
-            "antenna": r["antena"],
-            "antenna_status": {"heredada": "legacy", "sustituida": "replaced",
-                               "moderna": "modern"}[r["estado_antena"]],
-            "gps_3d_m": r["G"],
-            "galileo_3d_m": r["E"],
-            "fig_frac_x": round(fx, 5),
-            "fig_frac_y_from_bottom": round(fy, 5),
-            "px_x_at_300dpi": round(px / fig.dpi * 300, 1),
-            "px_y_from_top_at_300dpi": round((alto - py) / fig.dpi * 300, 1),
-        })
-    pos = pd.DataFrame(filas).sort_values("galileo_3d_m", ascending=False)
-    csv_pos = os.path.join(DATOS, "F4_panel_a_posiciones.csv")
-    pos.to_csv(csv_pos, index=False)
     plt.close(fig)
-    return destino, csv_pos
+    return destino
 
 
 # --------------------------------------------------------------------------
 # Figure 5: CACE series
 # --------------------------------------------------------------------------
 
+CAMBIO_CACE = pd.Timestamp("2025-03-19")
+
+# GPS, and Galileo with each frequency pair. Every series differs from the
+# others in colour and in line pattern, for greyscale printing.
+SERIES_CACE = [
+    ("G", "GPS", GPS, "-"),
+    ("E_e5a", "Galileo E1/E5a", GALILEO, (0, (5, 2))),
+    ("E_e5b", "Galileo E1/E5b", GALILEO, (0, (1, 1.2))),
+]
+
+
+def medianas_cace(s):
+    """Median of each CACE series before and after the antenna replacement."""
+    antes = s[s["date"] < CAMBIO_CACE].groupby("serie")["err_3d"].median()
+    despues = s[s["date"] >= CAMBIO_CACE].groupby("serie")["err_3d"].median()
+    return antes, despues
+
+
 def figura_5():
     s = pd.read_csv(os.path.join(DATOS, "F6_cace_serie.csv"), parse_dates=["date"])
-
-    cambio = pd.Timestamp("2025-03-19")
-    segunda = pd.Timestamp("2026-01-01")
 
     fig, ax = plt.subplots(figsize=(7.30, 3.25))
     fig.subplots_adjust(left=0.085, right=0.985, top=0.88, bottom=0.135)
 
-    # The two regimes after the replacement, shaded: they show as a region what
-    # the two vertical lines mark as an instant.
-    ax.axvspan(cambio, segunda, color=CALIDO, alpha=0.55, lw=0, zorder=0)
-    ax.axvspan(segunda, s["date"].max(), color=FRIO, alpha=0.55, lw=0, zorder=0)
+    ax.axvspan(CAMBIO_CACE, s["date"].max(), color=CALIDO, alpha=0.55, lw=0, zorder=0)
 
-    series = [("G", "GPS", GPS, "-"), ("E", "Galileo", GALILEO, (0, (5, 2)))]
-    for clave, nombre, color, trazo in series:
-        d = s[s["constellation"] == clave].sort_values("date")
-        ax.scatter(d["date"], d["err_3d"], s=2.2, color=color, alpha=0.20,
+    for clave, nombre, color, trazo in SERIES_CACE:
+        d = s[s["serie"] == clave].sort_values("date")
+        ax.scatter(d["date"], d["err_3d"], s=2.2, color=color, alpha=0.18,
                    linewidths=0, zorder=2)
         movil = (d.set_index("date")["err_3d"]
                    .rolling("15D", center=True, min_periods=5).median())
@@ -368,35 +381,17 @@ def figura_5():
     ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[4, 10]))
     ax.set_yscale("log")
     ax.set_ylabel("Daily 3D error (m)", fontsize=8.5)
-    ax.set_ylim(0.03, 30)
+    ax.set_ylim(0.03, 10)
     ax.set_xlim(s["date"].min() - pd.Timedelta(days=15),
                 s["date"].max() + pd.Timedelta(days=15))
     ax.tick_params(length=2.5)
     limpiar(ax)
 
-    ax.axvline(cambio, color=TINTA, lw=0.9, ls=(0, (6, 3)), zorder=5)
-    ax.axvline(segunda, color=TINTA, lw=0.9, ls=(0, (1.5, 1.8)), zorder=5)
-    ax.text(cambio - pd.Timedelta(days=22), 21,
-            "19 Mar 2025\nantenna and receiver\nreplaced (site log)",
-            fontsize=7.5, color=TINTA_2, ha="right", va="top", linespacing=1.35)
-    ax.text(segunda + pd.Timedelta(days=22), 21,
-            "Jan 2026\nno change recorded\nin the site logs",
-            fontsize=7.5, color=TINTA_2, ha="left", va="top", linespacing=1.35)
+    ax.axvline(CAMBIO_CACE, color=TINTA, lw=0.9, ls=(0, (6, 3)), zorder=5)
 
-    tramos = [
-        (s["date"].min(), cambio, 3.94, 0.738, 2.904),
-        (cambio, segunda, 0.90, 0.205, 0.185),
-        (segunda, s["date"].max(), 1.05, 0.873, 0.916),
-    ]
-    for ini, fin, eg, g, e in tramos:
-        centro = ini + (fin - ini) / 2
-        ax.text(centro, 0.047,
-                f"E/G = {eg:.2f}\nGPS {g:.3f} m\nGalileo {e:.3f} m",
-                fontsize=7.5, color=TINTA_2, ha="center", va="bottom",
-                linespacing=1.35)
 
-    ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.13), ncol=2, frameon=False,
-              fontsize=8.5, handletextpad=0.6, columnspacing=1.6)
+    ax.legend(loc="upper left", bbox_to_anchor=(0.0, 1.13), ncol=3, frameon=False,
+              fontsize=8.5, handletextpad=0.6, columnspacing=1.6, handlelength=2.6)
 
     destino = os.path.join(SALIDA, "Figure5.pdf")
     fig.savefig(destino, bbox_inches="tight", pad_inches=0.02)
@@ -405,27 +400,17 @@ def figura_5():
 
 
 def comprobar_medianas():
-    """Recomputes from the series the medians written on Figure 5."""
+    """Prints the CACE medians written on Figure 5, and the E/G of each pair."""
     s = pd.read_csv(os.path.join(DATOS, "F6_cace_serie.csv"), parse_dates=["date"])
-    cortes = [(None, "2025-03-19"), ("2025-03-19", "2026-01-01"), ("2026-01-01", None)]
-    print("\ncheck of the three CACE periods")
-    for ini, fin in cortes:
-        d = s.copy()
-        if ini:
-            d = d[d["date"] >= ini]
-        if fin:
-            d = d[d["date"] < fin]
-        g = d[d["constellation"] == "G"]["err_3d"].median()
-        e = d[d["constellation"] == "E"]["err_3d"].median()
-        n = len(d[d["constellation"] == "G"])
-        print(f"  {str(ini or 'start'):12s} to {str(fin or 'end'):12s} "
-              f"n={n:4d}  GPS {g:.3f}  Galileo {e:.3f}  E/G {e/g:.2f}")
+    print("\nCACE before and after the antenna replacement of 2025-03-19")
+    for nombre, med in zip(["before", "after"], medianas_cace(s)):
+        print(f"  {nombre:6s}  GPS {med['G']:.3f}  Galileo E1/E5a {med['E_e5a']:.3f} "
+              f"(E/G {med['E_e5a'] / med['G']:.2f})  Galileo E1/E5b {med['E_e5b']:.3f} "
+              f"(E/G {med['E_e5b'] / med['G']:.2f})")
 
 
 if __name__ == "__main__":
     comprobar_medianas()
     print("\n" + figura_3())
-    pdf, csv_pos = figura_4()
-    print(pdf)
-    print(csv_pos)
+    print(figura_4())
     print(figura_5())

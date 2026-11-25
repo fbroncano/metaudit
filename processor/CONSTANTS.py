@@ -27,7 +27,19 @@ def _load_cfg(name="postgis.cfg"):
     return {}
 
 
-_CFG = _load_cfg()
+# The article uses two sets of solutions, selected with SPP_DATASET:
+#   e5b (default)  release 1.4.0: Galileo E1/E5b, weighting by system. All the
+#                  results of the article except the antenna analysis.
+#   e5a            release 1.3.0: Galileo E1/E5a, weighting by elevation and
+#                  system. The antenna analysis, where E1/E5a reveals a
+#                  Galileo-only degradation at the stations with legacy antennas.
+# Each set lives in its own database (the unique key of daily_positions does not
+# include the run), configured in postgis.cfg and postgis_e5a.cfg respectively.
+DATASET = os.environ.get("SPP_DATASET", "e5b")
+if DATASET not in ("e5a", "e5b"):
+    raise ValueError(f"SPP_DATASET must be e5a or e5b, not {DATASET!r}")
+
+_CFG = _load_cfg("postgis_e5a.cfg" if DATASET == "e5a" else "postgis.cfg")
 
 
 def _setting(key, default):
@@ -48,6 +60,17 @@ TEST = True
 MAX_WORKERS = 12
 SAVE = False
 HATCH_EPOCHS = 10
+
+# Observation weighting in the least-squares adjustment (see
+# gnss_processor.observation_weights): 'none', 'system' or 'elevation'.
+WEIGHT_MODEL = 'elevation' if DATASET == "e5a" else 'system'
+ELEV_SIGMA_A = 0.3   # m, elevation-independent part of the code noise
+ELEV_SIGMA_B = 0.3   # m, part scaled by 1/sin(E)
+# Relative code noise per system, from the post-fit residual RMS of the
+# single-system solutions corrected for degrees of freedom (37 station-days,
+# 2024-2025, with TGD applied): GPS ~1.2 m, Galileo ~0.55 m, BeiDou ~1.3 m.
+# Derived from the residuals, not tuned against the reference coordinates.
+SYSTEM_SIGMA = {'G': 1.0, 'E': 0.5, 'C': 1.1, 'R': 1.0}
 INTERVAL = 300
 
 # WGS84 parameters
@@ -129,10 +152,17 @@ FREQUENCIES = {
 # database from that date.
 IONOFREE_PAIRS = {
     'G': [('C1', 'C2'), ('C1', 'C5')],
-    'E': [('C1', 'C5'), ('C1', 'C7'), ('C1', 'C6')],
+    'E': [('C1', 'C7'), ('C1', 'C5'), ('C1', 'C6')],   # E1/E5b: reference of the I/NAV clocks
     'C': [('C2', 'C6'), ('C2', 'C7'), ('C1', 'C5')],
     'R': [('C1', 'C2')]
 }
+
+# E1/E5a first for Galileo, as in releases up to 1.3.0, only for the e5a set.
+if DATASET == "e5a":
+    IONOFREE_PAIRS['E'] = [('C1', 'C5'), ('C1', 'C7'), ('C1', 'C6')]
+
+# Software version recorded by main.py and required by the analysis.
+SW_ID = 3 if DATASET == "e5a" else 4
 
 WAVELENGTHS = {
     'G': {

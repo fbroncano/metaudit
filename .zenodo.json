@@ -1,6 +1,6 @@
 {
-  "title": "spp-diagnosing: SPP processing pipeline and characterisation analysis for the Spanish EPN stations",
-  "description": "Code accompanying the manuscript 'Diagnosing a GNSS data processing pipeline through instrument metadata over the EPN network in Spain'. It contains the standard point positioning (SPP) pipeline that was audited, which computes daily positions for each station from its own observation and navigation RINEX files without precise products, for GPS, Galileo, BeiDou and their combination with five daily estimators, and the analysis that compares them against the daily PPP series of the Nevada Geodetic Laboratory over 27 Spanish EPN stations and 1001 days (1 October 2023 to 27 June 2026). The analysis reproduces the constellation-estimator characterisation, the grouping of residuals by antenna model, the antenna versus receiver checks (bootstrap intervals and permutation tests) and Figures 3 to 5 of the article. It includes a patch for georinex 1.16.2, whose RINEX 3 navigation reader silently discards every BeiDou ephemeris. Solutions are stored in PostgreSQL/PostGIS; the database schema and deployment are published separately in GeoGNSS-PS (DOI 10.5281/zenodo.20538639). GNSS data are obtained from the IGN ERGNSS server, station metadata from the EPN site logs and the reference series from the Nevada Geodetic Laboratory; none of them is redistributed.",
+  "title": "metaudit: metadata-grouped residual audit, with the SPP pipeline audited over the Spanish EPN stations",
+  "description": "Code accompanying the manuscript 'Diagnosing silent failures in GNSS network processing through metadata-grouped residual audits'. Release 2.0.0 contains three parts. (1) metaudit, a GNSS-independent module implementing the diagnostic procedure of the article: it groups the residuals of a network of instruments against an external reference by instrument metadata, requires a reference channel to remain invariant, ranks attributes by permutation tests with bootstrap intervals, and compares two processing runs unit by unit; it needs only NumPy and pandas and comes with unit tests, a synthetic network, example data, a user guide and a tutorial. (2) The standard point positioning (SPP) pipeline audited, release 1.4.0 (Galileo E1/E5b, weighting by system), with an SPP_DATASET switch that also reproduces the E1/E5a set (release 1.3.0) used in the antenna analysis. It computes daily positions for each station from its own observation and navigation RINEX files without precise products, for GPS, Galileo, BeiDou and their combination with five daily estimators; the method is described in Broncano et al. (2026), IEEE Access, doi:10.1109/ACCESS.2026.3751207. (3) The analysis that compares the solutions against the daily PPP series of the Nevada Geodetic Laboratory over 27 Spanish EPN stations and 1001 days (1 October 2023 to 27 June 2026) and produces the tables and Figures 3 to 5 of the article. It includes a patch for georinex 1.16.2, whose RINEX 3 navigation reader silently discards every BeiDou ephemeris. Solutions are stored in PostgreSQL/PostGIS; the database schema and deployment are published separately in GeoGNSS-PS (DOI 10.5281/zenodo.20538639). GNSS data are obtained from the IGN ERGNSS server, station metadata from the EPN site logs and the reference series from the Nevada Geodetic Laboratory; none of them is redistributed. Release 1.0.0 contains pipeline 1.1.0 and the analysis of the first draft; see the README for the changes between pipeline releases.",
   "creators": [
     {
       "name": "Broncano, Fernando",
@@ -8,14 +8,14 @@
       "orcid": "0009-0001-8104-6232"
     },
     {
-      "name": "Rodríguez, Pablo G.",
-      "affiliation": "Universidad de Extremadura",
-      "orcid": "0000-0001-8168-7892"
-    },
-    {
       "name": "Botejara-Antúnez, Manuel",
       "affiliation": "Universidad de Extremadura",
       "orcid": "0000-0003-2570-1658"
+    },
+    {
+      "name": "Rodríguez, Pablo G.",
+      "affiliation": "Universidad de Extremadura",
+      "orcid": "0000-0001-8168-7892"
     },
     {
       "name": "Caro, Andrés",
@@ -32,7 +32,7 @@
   "upload_type": "software",
   "access_right": "open",
   "language": "eng",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "keywords": [
     "GNSS",
     "standard point positioning",
@@ -47,7 +47,10 @@
     "scientific software",
     "georinex",
     "PostGIS",
-    "Spain"
+    "Spain",
+    "metaudit",
+    "residual audit",
+    "reproducibility"
   ],
   "related_identifiers": [
     {
@@ -57,9 +60,16 @@
       "resource_type": "software"
     },
     {
-      "identifier": "https://github.com/fbroncano/spp-diagnosing",
+      "identifier": "10.1109/ACCESS.2026.3751207",
+      "relation": "isDescribedBy",
+      "scheme": "doi",
+      "resource_type": "publication-article"
+    },
+    {
+      "identifier": "https://github.com/fbroncano/metaudit",
       "relation": "isSupplementTo",
       "scheme": "url"
     }
-  ]
+  ],
+  "publication_date": "2026-11-13"
 }

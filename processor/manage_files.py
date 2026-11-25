@@ -15,14 +15,14 @@ class NumpyEncoder(json.JSONEncoder):
             return obj.tolist()
         return super().default(obj)
     
-def descargar_fichero_anio(station: str, year: int) -> None:
+def download_year(station: str, year: int) -> None:
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         for month in range(1, 13):
-            executor.submit(descargar_fichero_mes, station, month, year)
+            executor.submit(download_month, station, month, year)
 
 
 
-def descargar_fichero_mes(station: str, month: int, year: int) -> None:
+def download_month(station: str, month: int, year: int) -> None:
     if month in [1, 3, 5, 7, 8, 10, 12]:
         days = 31
     elif month in [4, 6, 9, 11]:
@@ -32,47 +32,47 @@ def descargar_fichero_mes(station: str, month: int, year: int) -> None:
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         for day in range(1, days-1):
-            executor.submit(descargar_fichero_estacion, station, day, month, year)
+            executor.submit(download_station_day, station, day, month, year)
         
 
 
-def descargar_fichero_estacion(station: str, day: int, month: int, year: int, navegation: bool = False) -> None:
-    fecha_str = datestr_filename(day, month, year)
+def download_station_day(station: str, day: int, month: int, year: int, navigation: bool = False) -> None:
+    date_str = datestr_filename(day, month, year)
     
     # Build the URLs
-    base_url = f"https://datos-geodesia.ign.es/ERGNSS/diario_30s/{year}/{fecha_str}"
-    nombre_obs = obs_filename(station, day, month, year)
-    nombre_nav = nav_filename(station, day, month, year)
+    base_url = f"https://datos-geodesia.ign.es/ERGNSS/diario_30s/{year}/{date_str}"
+    obs_name = obs_filename(station, day, month, year)
+    nav_name = nav_filename(station, day, month, year)
     
-    url_obs = f"{base_url}/{nombre_obs}"
-    url_nav = f"{base_url}/{nombre_nav}"
+    url_obs = f"{base_url}/{obs_name}"
+    url_nav = f"{base_url}/{nav_name}"
     
     # Create the download folder if it does not exist
     os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-    if navegation:
+    if navigation:
         # Download navigation file
-        print(f"Downloading navigation file: {nombre_nav}")
+        print(f"Downloading navigation file: {nav_name}")
         try:
             response = requests.get(url_nav, timeout=30)
             response.raise_for_status()
-            ruta_nav = os.path.join(DOWNLOAD_FOLDER, nombre_nav)
-            with open(ruta_nav, "wb") as f:
+            nav_path = os.path.join(DOWNLOAD_FOLDER, nav_name)
+            with open(nav_path, "wb") as f:
                 f.write(response.content)
-            print(f"  ✓ Navigation file downloaded: {ruta_nav}")
+            print(f"  ✓ Navigation file downloaded: {nav_path}")
         except requests.exceptions.RequestException as e:
             print(f"  ✗ Error downloading navigation file: {e}")
     else:
         # Download observation file
-        print_log(f"Downloading observation file: {nombre_obs}", TEST)
+        print_log(f"Downloading observation file: {obs_name}", TEST)
 
         try:
             response = requests.get(url_obs, timeout=30)
             response.raise_for_status()
-            ruta_obs = os.path.join(DOWNLOAD_FOLDER, nombre_obs)
-            with open(ruta_obs, "wb") as f:
+            obs_path = os.path.join(DOWNLOAD_FOLDER, obs_name)
+            with open(obs_path, "wb") as f:
                 f.write(response.content)
-            print_log(f"  ✓ Observation file downloaded: {ruta_obs}", TEST)
+            print_log(f"  ✓ Observation file downloaded: {obs_path}", TEST)
         except requests.exceptions.RequestException as e:
             print(f"  ✗ Error downloading observation file: {e}")
     
@@ -83,11 +83,11 @@ def clean_file(rn_df: pd.DataFrame) -> pd.DataFrame:
     return rn_df.dropna(axis=0, how="all")
 
 
-def load_files(file: str, navegation: bool = False) -> tuple[pd.DataFrame, dict]:
+def load_files(file: str, navigation: bool = False) -> tuple[pd.DataFrame, dict]:
     print(f"Loading file {file}")
 
     kwargs = {"use": {"G", "E", "C"}}
-    if not navegation:
+    if not navigation:
         # Only observations are decimated: ephemerides come every ~2 h and
         # filtering them by time would leave satellites without an orbit.
         kwargs["interval"] = INTERVAL
@@ -114,8 +114,8 @@ def clean_nav_df(nav_df: pd.DataFrame) -> pd.DataFrame:
     return nav_df
 
 
-def save_file(rn_df: pd.DataFrame, attrs: dict, station: str, day: int, month: int, year: int, navegation: bool = False) -> None:
-    suffix = "MN" if navegation else "MO"
+def save_file(rn_df: pd.DataFrame, attrs: dict, station: str, day: int, month: int, year: int, navigation: bool = False) -> None:
+    suffix = "MN" if navigation else "MO"
     date = f"{day:02d}{month:02d}{year:04d}"
     
     rn_df.to_csv(f"{SAVE_FOLDER}/{station}_{date}_{suffix}.csv")
@@ -124,10 +124,10 @@ def save_file(rn_df: pd.DataFrame, attrs: dict, station: str, day: int, month: i
 
 
 
-def open_file(station: str, day: int, month: int, year: int, navegation: bool = False, save: bool = True) -> tuple[pd.DataFrame, dict]:
+def open_file(station: str, day: int, month: int, year: int, navigation: bool = False, save: bool = True) -> tuple[pd.DataFrame, dict]:
 
     # File naming
-    suffix = "MN" if navegation else "MO"
+    suffix = "MN" if navigation else "MO"
     date = f"{day:02d}{month:02d}{year:04d}"
     csv_path = f"{SAVE_FOLDER}/{station}_{date}_{suffix}.csv"
     json_path = f"{SAVE_FOLDER}/{station}_{date}_{suffix}.json"
@@ -142,24 +142,24 @@ def open_file(station: str, day: int, month: int, year: int, navegation: bool = 
 
     else:
         # Standard IGS file name
-        rn_file = nav_filename(station, day, month, year) if navegation else obs_filename(station, day, month, year)
+        rn_file = nav_filename(station, day, month, year) if navigation else obs_filename(station, day, month, year)
         rn_file = f"{DOWNLOAD_FOLDER}/{rn_file}"
         
         # Download it if not present
         if not os.path.exists(rn_file):
-            descargar_fichero_estacion(station, day, month, year, navegation)
+            download_station_day(station, day, month, year, navigation)
         
         # Read the RINEX file into a dataframe
-        rn_df, attrs = load_files(rn_file, navegation)
-        rn_df = clean_nav_df(rn_df) if navegation else clean_file(rn_df)
+        rn_df, attrs = load_files(rn_file, navigation)
+        rn_df = clean_nav_df(rn_df) if navigation else clean_file(rn_df)
         if save:
-            save_file(rn_df, attrs, station, day, month, year, navegation)
+            save_file(rn_df, attrs, station, day, month, year, navigation)
 
         return rn_df, attrs
 
 
-def remove_file(station: str, day: int, month: int, year: int, navegation: bool = False) -> None:
-    file = nav_filename(station, day, month, year) if navegation else obs_filename(station, day, month, year)
+def remove_file(station: str, day: int, month: int, year: int, navigation: bool = False) -> None:
+    file = nav_filename(station, day, month, year) if navigation else obs_filename(station, day, month, year)
     path = f"{DOWNLOAD_FOLDER}/{file}"
     if os.path.exists(path):  # may not exist if it came from the cache
         os.remove(path)

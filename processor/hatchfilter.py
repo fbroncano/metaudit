@@ -1,15 +1,20 @@
 class HatchFilter:
     """
     Hatch filter: smooths code pseudorange using carrier phase.
+
+    The pipeline feeds it the ionosphere-free code and phase of each satellite
+    (see pre_processor.get_ionofree_pseudorange_smoothed), keyed by the pair of
+    observables used, so there is no ionospheric divergence to cancel and a
+    slip on either frequency restarts a single filter.
     """
 
     def __init__(self, max_epochs=100, cycle_slip_threshold=5.0):
         self.max_epochs = max_epochs
         self.cycle_slip_threshold = cycle_slip_threshold
-        self.filters = {}  # {(sv, freq): state}
+        self.filters = {}  # {(sv, key): state}
 
     def reset(self, sv, freq):
-        """Resets the filter for one satellite/frequency."""
+        """Resets the filter for one satellite and observable key."""
         key = (sv, freq)
         if key in self.filters:
             del self.filters[key]
@@ -23,13 +28,13 @@ class HatchFilter:
         sv : str
             Satellite identifier ('G01', 'E14', etc.)
         freq : str
-            Frequency code ('C1C', 'C5Q', etc.)
+            Observable key, e.g. 'C1C/C2W' for an ionosphere-free pair
         P : float
             Code pseudorange (metres)
         L : float
-            Carrier phase (cycles)
+            Carrier phase, in cycles, or in metres with wavelength=1.0
         wavelength : float
-            Wavelength (metres)
+            Wavelength (metres); 1.0 when L is already in metres
 
         Returns:
         --------

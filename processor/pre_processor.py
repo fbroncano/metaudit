@@ -22,12 +22,37 @@ def _resolve_code(obs: pd.DataFrame, code: str) -> tuple[str|None, float]:
 
     return None, np.nan
 
-def get_ionofree_pseudorange_smoothed(obs: pd.DataFrame, sv: str, hatch_filter: HatchFilter, freqnum: np.float64 = np.nan):
+def _group_delays(system: str, eph) -> dict:
     """
-    Ionosphere-free pseudorange with Hatch smoothing.
+    Broadcast group delays, in metres, per band, relative to the signal the
+    satellite clock is referred to.
+
+    BeiDou D1/D2 clocks refer to B3I, so B3I carries no delay, B1I carries TGD1
+    and B2I carries TGD2. Without them the B1I/B3I combination inherits up to
+    ~3 x 20 ns of satellite-specific bias, which is what left BeiDou at metre
+    level. The B1C/B2a pair needs the CNAV delays, absent from these records,
+    so it is left uncorrected. GPS needs nothing for L1/L2, the pair its clock
+    refers to; Galileo is not corrected here.
+    """
+    if system == 'C' and eph is not None:
+        tgd1, tgd2 = eph.get('TGD1'), eph.get('TGD2')
+        if tgd1 is not None and not pd.isna(tgd1):
+            delays = {'C2': C * tgd1, 'C6': 0.0}
+            if tgd2 is not None and not pd.isna(tgd2):
+                delays['C7'] = C * tgd2
+            return delays
+    return {}
+
+
+def get_ionofree_pseudorange_smoothed(obs: pd.DataFrame, sv: str, hatch_filter: HatchFilter,
+                                      freqnum: np.float64 = np.nan, eph=None):
+    """
+    Ionosphere-free pseudorange with Hatch smoothing, corrected for the
+    broadcast group delays of the pair used (see _group_delays).
     """
 
     system = sv[0]
+    delays = _group_delays(system, eph)
 
     for code1, code2 in IONOFREE_PAIRS[system]:
         code1_used, P1 = _resolve_code(obs, code1)
@@ -40,23 +65,35 @@ def get_ionofree_pseudorange_smoothed(obs: pd.DataFrame, sv: str, hatch_filter: 
         phase1 = "L" + code1_used[1:]
         phase2 = "L" + code2_used[1:]
 
-        L1 = obs.get(phase1) if phase1 else None
-        L2 = obs.get(phase2) if phase2 else None
-        
-        # Smooth if phase is available
-        if L1 is not None and not pd.isna(L1):
-            wl1 = WAVELENGTHS[system][code1] if np.isnan(freqnum) else C/glonass_frequency(int(code1[1]), freqnum)
-            P1 = hatch_filter.update(sv, code1, P1, L1, wl1)
-        
-        if L2 is not None and not pd.isna(L2):
-            wl2 = WAVELENGTHS[system][code2] if np.isnan(freqnum) else C/glonass_frequency(int(code2[1]), freqnum)
-            P2 = hatch_filter.update(sv, code2, P2, L2, wl2)
-        
-        # Ionosphere-free combination of the smoothed codes
+        L1 = obs.get(phase1)
+        L2 = obs.get(phase2)
+
         f1 = FREQUENCIES[system][code1] if np.isnan(freqnum) else glonass_frequency(int(code1[1]), freqnum)
         f2 = FREQUENCIES[system][code2] if np.isnan(freqnum) else glonass_frequency(int(code2[1]), freqnum)
-        
-        return ionofree_combination(P1, P2, f1, f2)
+        P_if = ionofree_combination(P1, P2, f1, f2)
+
+        # Group delay of the combination. It is constant per ephemeris, so it
+        # is removed after smoothing: subtracting it before would feed the
+        # filter a step every time the ephemeris changes.
+        bias_if = (ionofree_combination(delays[code1], delays[code2], f1, f2)
+                   if code1 in delays and code2 in delays else 0.0)
+
+        # The filter key carries the observables actually used, so a change of
+        # pair or tracking code restarts the smoothing.
+        key = f"{code1_used}/{code2_used}"
+        if L1 is None or L2 is None or pd.isna(L1) or pd.isna(L2):
+            hatch_filter.reset(sv, key)
+            return P_if - bias_if
+
+        # Smoothing is applied once, to the ionosphere-free code with the
+        # ionosphere-free phase. Smoothing each frequency separately and
+        # combining afterwards only cancels the code-carrier ionospheric
+        # divergence when both filters share the same history; with 300 s
+        # decimation the second frequency is reset about twice as often by
+        # the cycle-slip test, the divergence survives the combination and
+        # biases the daily position by up to 1.7 m, mostly to the east.
+        L_if = ionofree_combination(L1 * (C / f1), L2 * (C / f2), f1, f2)
+        return hatch_filter.update(sv, key, P_if, L_if, 1.0) - bias_if
     
     return None
 

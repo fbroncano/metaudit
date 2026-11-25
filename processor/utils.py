@@ -4,9 +4,9 @@ from datetime import datetime
 from CONSTANTS import WGS84_A, WGS84_E2
 
 def _day_year(day: int, month: int, year: int) -> str:
-    fecha = datetime(year, month, day)
-    dia_anio = fecha.timetuple().tm_yday
-    return f"{dia_anio:03d}"
+    day_dt = datetime(year, month, day)
+    doy = day_dt.timetuple().tm_yday
+    return f"{doy:03d}"
 
 
 def datestr_filename(day: int, month: int, year: int) -> str:
@@ -14,13 +14,13 @@ def datestr_filename(day: int, month: int, year: int) -> str:
 
 
 def nav_filename(station: str, day: int, month: int, year: int) -> str:
-    dia_anio_str = _day_year(day, month, year)
-    return f"{station}00ESP_R_{year}{dia_anio_str}0000_01D_MN.rnx.gz"
+    doy_str = _day_year(day, month, year)
+    return f"{station}00ESP_R_{year}{doy_str}0000_01D_MN.rnx.gz"
 
 
 def obs_filename(station: str, day: int, month: int, year: int) -> str:    
-    dia_anio_str = _day_year(day, month, year)
-    return f"{station}00ESP_R_{year}{dia_anio_str}0000_01D_30S_MO.crx.gz"
+    doy_str = _day_year(day, month, year)
+    return f"{station}00ESP_R_{year}{doy_str}0000_01D_30S_MO.crx.gz"
 
 
 def print_log(info, verbose: bool = True):

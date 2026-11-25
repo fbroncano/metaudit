@@ -23,6 +23,7 @@ import pandas as pd
 
 from analysis._paths import REFERENCE_DIR
 from analysis.geodesy import ecef2lla, ecef_delta_to_enu
+from CONSTANTS import SW_ID, _load_cfg
 from dao import Database
 
 _QUERY = """
@@ -66,16 +67,15 @@ SELECT dp.station_id,
 FROM daily_positions dp
 JOIN constellations c ON c.id = dp.constellation_id
 JOIN methods       m ON m.id = dp.method_id
+JOIN runs          r ON r.run_id = dp.run_id
 LEFT JOIN daily_statistics ds
        ON ds.station_id = dp.station_id
       AND ds.date = dp.date
       AND ds.constellation_id = dp.constellation_id
 WHERE (%(stations)s IS NULL OR dp.station_id = ANY(%(stations)s))
-  -- `hdop_avg` is filled only by the corrected pipeline (ARP reduction and one
-  -- ionosphere-free combination per constellation). It marks those rows so
-  -- that they are not mixed with older rows, which carry a ~0.7 m vertical
-  -- bias in GPS.
-  AND (NOT %(solo_nuevo)s OR ds.hdop_avg IS NOT NULL)
+  -- Only the software version of the selected set (SPP_DATASET), so that
+  -- solutions of different releases are never mixed.
+  AND r.sw_id = %(sw_id)s
 ORDER BY dp.station_id, dp.date, dp.constellation_id, dp.method_id
 """
 
@@ -86,8 +86,6 @@ QUALITY_COLS = [
     "n_satellites_avg", "clock_bias_m",
     "gdop_avg", "pdop_avg", "pdop_max", "tdop_avg",
     "rms_avg", "rms_max",
-    # Added with the corrected pipeline. They exist only in its rows, which are
-    # identified by a non-null `hdop_avg`.
     "gdop_p95", "pdop_p95", "tdop_p95", "rms_p95",
     "hdop_avg", "hdop_p95", "hdop_max",
     "vdop_avg", "vdop_p95", "vdop_max",
@@ -121,12 +119,30 @@ CONSTELACIONES = ["G", "E", "C", "GEC"]
 METODOS = ["mean", "median", "mad", "weighted", "weighted_mad"]
 
 
-def load_spp(stations=None, db=None, solo_nuevo=True):
-    """Reads the SPP solutions and their statistics from PostGIS."""
+# Software version of each set of solutions (see SPP_DATASET in CONSTANTS).
+SW_IDS = {"e5a": 3, "e5b": 4}
+
+
+def database_for(dataset):
+    """Connection to the database of one set of solutions, 'e5a' or 'e5b'.
+
+    The figures compare both sets in one run, so the connection cannot come
+    from SPP_DATASET alone: it is read from the set's own configuration file.
+    """
+    cfg = _load_cfg("postgis_e5a.cfg" if dataset == "e5a" else "postgis.cfg")
+    return Database(host=cfg.get("POSTGRES_HOST", "localhost"),
+                    port=int(cfg.get("POSTGRES_PORT", 5432)),
+                    database=cfg.get("POSTGRES_DB", "positions"),
+                    user=cfg.get("POSTGRES_USER", "postgres"),
+                    password=cfg.get("POSTGRES_PASSWORD", ""))
+
+
+def load_spp(stations=None, db=None, sw_id=SW_ID):
+    """Reads the SPP solutions of one software version and their statistics from PostGIS."""
     db = db or Database()
     with db.get_cursor() as cursor:
         cursor.execute(_QUERY, {"stations": list(stations) if stations else None,
-                                "solo_nuevo": solo_nuevo})
+                                "sw_id": sw_id})
         df = pd.DataFrame([dict(r) for r in cursor.fetchall()])
     df["date"] = pd.to_datetime(df["date"])
     for col in QUALITY_COLS + ["spp_x", "spp_y", "spp_z"]:
@@ -155,12 +171,12 @@ def station_origin(station, db=None):
     return lat, lon
 
 
-def build_dataset(stations, db=None, folder=REFERENCE_DIR, solo_nuevo=True):
+def build_dataset(stations, db=None, folder=REFERENCE_DIR, sw_id=SW_ID):
     """Joins SPP + PPP reference and computes the ENU error of each solution."""
     db = db or Database()
     stations = [stations] if isinstance(stations, str) else list(stations)
 
-    spp = load_spp(stations, db=db, solo_nuevo=solo_nuevo)
+    spp = load_spp(stations, db=db, sw_id=sw_id)
     truth = pd.concat([load_truth(s, folder) for s in stations], ignore_index=True)
     df = spp.merge(truth, on=["station_id", "date"], how="inner")
 

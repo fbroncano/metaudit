@@ -96,6 +96,8 @@ def main():
     err = (mejor.groupby(["station_id", "constellation"], observed=True)["err_3d"]
                 .median().unstack("constellation"))
 
+    # Categorical column labels break DataFrame.join in recent pandas.
+    err.columns = err.columns.astype(str)
     tabla = cab.join(err[["G", "E"]], how="left")
     tabla["E/G"] = tabla["E"] / tabla["G"]
 

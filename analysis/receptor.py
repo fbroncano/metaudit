@@ -26,6 +26,8 @@ import argparse
 import numpy as np
 import pandas as pd
 
+import metaudit
+
 from analysis.caracterizacion import cargar_todo, marcar_gec_real, por_antena
 from analysis.dataset import DESDE, HASTA
 
@@ -109,68 +111,22 @@ def bootstrap_eg(eg, por="antenna_type", n=N_BOOT, semilla=SEMILLA):
 
     Resampling is over stations because the station is the replicated unit.
     Groups with a single station admit no interval and are flagged as such
-    (see Section 4.2 of the article).
+    (see Section 4.2 of the article). Computed by `metaudit.group_intervals`.
     """
-    rng = np.random.default_rng(semilla)
-    filas = []
-    for grupo, sub in eg.groupby(por, observed=True):
-        g, e = sub["G"].to_numpy(), sub["E"].to_numpy()
-        k = len(sub)
-        punto = np.median(e) / np.median(g)
-        if k < 2:
-            filas.append({por: grupo, "n_est": k, "E/G": punto,
-                          "ic_bajo": np.nan, "ic_alto": np.nan})
-            continue
-        idx = rng.integers(0, k, size=(n, k))
-        reps = np.median(e[idx], axis=1) / np.median(g[idx], axis=1)
-        lo, hi = np.percentile(reps, [2.5, 97.5])
-        filas.append({por: grupo, "n_est": k, "E/G": punto,
-                      "ic_bajo": lo, "ic_alto": hi})
-    return pd.DataFrame(filas).sort_values("E/G", ascending=False)
+    out = metaudit.group_intervals(eg, por, "E", "G", n=n, seed=semilla)
+    return out.rename(columns={"n": "n_est", "ratio": "E/G", "low": "ic_bajo",
+                               "high": "ic_alto"})
 
 
 def permutacion(eg, por="antenna_type", n=N_PERM, semilla=SEMILLA):
     """Does the metadatum explain the dispersion of E/G better than chance?
 
-    Replaces the correlations of log(E/G) with log(E) and log(G), which are
-    spurious by construction (Pearson, 1897): log(E/G) = log E - log G, so its
-    correlation with each component has a sign fixed in advance.
-
-    Two statistics are computed on log(E/G), because they measure different
-    things:
-
-    - `eta2`, the between-group fraction of variance. It weights by group size,
-      so a single-station group cannot dominate it.
-    - `recorrido` (range), the difference between the largest and smallest
-      group median. It describes the effect, but as a test statistic it has
-      almost no power here: with nine groups of sizes 1 to 9, a permutation
-      that sends an extreme value to a single-station group reproduces the
-      observed range effortlessly.
-
-    The null hypothesis reassigns the labels across units while preserving
-    group sizes.
+    Permutation test of `metaudit.permutation_test` on log(E/G): `eta2`, the
+    between-group fraction of variance, and the range of group medians. It
+    replaces the correlations of log(E/G) with log(E) and log(G), which are
+    spurious by construction (Pearson, 1897).
     """
-    rng = np.random.default_rng(semilla)
-    sub = eg.dropna(subset=[por]).copy()
-    valores = np.log(sub["E/G"].to_numpy())
-    etiquetas = sub[por].to_numpy()
-
-    def estadisticos(lab):
-        s = pd.Series(valores)
-        med = s.groupby(lab).median()
-        gran = valores.mean()
-        medias = s.groupby(lab).mean()
-        tam = s.groupby(lab).size()
-        entre = float((tam * (medias - gran) ** 2).sum())
-        total = float(((valores - gran) ** 2).sum())
-        return entre / total if total else np.nan, float(med.max() - med.min())
-
-    obs = estadisticos(etiquetas)
-    nulo = np.empty((n, 2))
-    for i in range(n):
-        nulo[i] = estadisticos(rng.permutation(etiquetas))
-    p = [(1 + np.sum(nulo[:, j] >= obs[j])) / (n + 1) for j in range(2)]
-    return obs, p, nulo
+    return metaudit.permutation_test(eg, por, n=n, seed=semilla, ratio="E/G")
 
 
 # Legacy antenna models of GPS L1/L2 design, predating E5a, as classified in the
@@ -185,22 +141,10 @@ def contraste_heredadas(eg, n=N_PERM, semilla=SEMILLA):
     This is the test with power, because it spends one degree of freedom
     instead of eight. The classification is by design period of the antenna
     model, an attribute of the instrument that precedes the data, not a cut
-    chosen after looking at the residuals.
+    chosen after looking at the residuals. Computed by `metaudit.contrast`.
     """
-    rng = np.random.default_rng(semilla)
-    sub = eg.dropna(subset=["antenna_type"]).copy()
-    es_her = sub["antenna_type"].isin(HEREDADAS).to_numpy()
-    valores = np.log(sub["E/G"].to_numpy())
-
-    def estadistico(mascara):
-        return float(np.median(valores[mascara]) - np.median(valores[~mascara]))
-
-    obs = estadistico(es_her)
-    nulo = np.empty(n)
-    for i in range(n):
-        nulo[i] = estadistico(rng.permutation(es_her))
-    p = (1 + np.sum(np.abs(nulo) >= abs(obs))) / (n + 1)
-    return obs, p, int(es_her.sum()), int((~es_her).sum())
+    c = metaudit.contrast(eg, "antenna_type", HEREDADAS, n=n, seed=semilla, ratio="E/G")
+    return c["log_difference"], c["p"], c["n_group"], c["n_rest"]
 
 
 def main():

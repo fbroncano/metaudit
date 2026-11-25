@@ -2,7 +2,7 @@ import pandas as pd
 import json
 import numpy as np
 from utils import seconds_gps_week, subtract_gps_dates, cvt_datetime, ecef_to_geodetic
-from CONSTANTS import C, TAU_CALC, HATCH_EPOCHS
+from CONSTANTS import C, TAU_CALC, HATCH_EPOCHS, WEIGHT_MODEL, ELEV_SIGMA_A, ELEV_SIGMA_B, SYSTEM_SIGMA
 from hatchfilter import HatchFilter
 from sv_processor import calculate_sv_position
 from pre_processor import get_ionofree_pseudorange, get_ionofree_pseudorange_smoothed, check_elevation_mask, saastamoinen_tropospheric_delay, apply_sagnac_correction, _resolve_code
@@ -48,7 +48,7 @@ def select_best_ephemeris(nav_df: pd.DataFrame, sv: str, obs_time_gps_seconds: i
 
 def calculate_position(obs_df: pd.DataFrame, nav_df: pd.DataFrame, position: list[np.float64], constellations=['E']) -> pd.DataFrame:
 
-    ecuaciones = []
+    equations = []
 
     for index, obs in obs_df.iterrows():
         if index[1][0] in constellations:
@@ -76,10 +76,10 @@ def calculate_position(obs_df: pd.DataFrame, nav_df: pd.DataFrame, position: lis
                 sat_pos_corrected = apply_sagnac_correction(sv_pos, position)
                 dobs = pseudorange_ionofree + C * sv_data["clksv"] - d_tropo
 
-                ecuaciones.append({'sat_pos': sat_pos_corrected, 'd_obs': dobs, 'system': index[1][0]})
+                equations.append({'sat_pos': sat_pos_corrected, 'd_obs': dobs, 'system': index[1][0]})
 
     # 4. Solve the system of equations
-    return solve_position(ecuaciones, position)    
+    return solve_position(equations, position)    
 
 
 def _nueva_metadata() -> dict:
@@ -97,12 +97,12 @@ def _nueva_metadata() -> dict:
     )}
 
 
-def calculate_ecuations_with_hatch(epoch, epoch_obs, nav_df, position_approx, constellations, hatch_filter):
+def calculate_equations_with_hatch(epoch, epoch_obs, nav_df, position_approx, constellations, hatch_filter):
     """
     Builds the observation equations of one epoch using the Hatch filter.
     """
     
-    ecuaciones = []
+    equations = []
     if type(epoch) == str:
         obs_seconds = seconds_gps_week(cvt_datetime(epoch))
     else:
@@ -131,7 +131,7 @@ def calculate_ecuations_with_hatch(epoch, epoch_obs, nav_df, position_approx, co
         sv_pos = [sv_data["xsv"], sv_data["ysv"], sv_data["zsv"]]
 
         # Hatch-smoothed version
-        pseudorange_ionofree = get_ionofree_pseudorange_smoothed(obs, sv, hatch_filter, sv_data["freqnum"])
+        pseudorange_ionofree = get_ionofree_pseudorange_smoothed(obs, sv, hatch_filter, sv_data["freqnum"], eph)
         if pseudorange_ionofree is None:
             continue
         
@@ -148,7 +148,7 @@ def calculate_ecuations_with_hatch(epoch, epoch_obs, nav_df, position_approx, co
 
         # Elevation and azimuth travel with the equation so that the geometry of
         # the satellites that actually entered the adjustment can be described.
-        ecuaciones.append({
+        equations.append({
             'sat_pos': sat_pos_corrected,
             'd_obs': dobs,
             'system': sv[0],
@@ -156,16 +156,39 @@ def calculate_ecuations_with_hatch(epoch, epoch_obs, nav_df, position_approx, co
             'azimuth': azimuth,
         })
     
-    if len(ecuaciones) < 4:
+    if len(equations) < 4:
         return None
     
-    return ecuaciones
+    return equations
 
     if len(constellations) > 1:
-        return solve_position_multi_gnss(ecuaciones, position_approx, constellations)
+        return solve_position_multi_gnss(equations, position_approx, constellations)
     else:
-        return solve_position(ecuaciones, position_approx)
+        return solve_position(equations, position_approx)
     
+
+
+def observation_weights(satellites_data):
+    """
+    Weight of each observation, 1/sigma^2, for the least-squares adjustment.
+
+    WEIGHT_MODEL = 'none' reproduces the unweighted solution (all weights 1),
+    'system' applies only the per-system factor SYSTEM_SIGMA, and
+    'elevation' uses sigma^2 = a^2 + b^2/sin^2(E), which down-weights low
+    satellites, scaled per system by SYSTEM_SIGMA so that a noisier
+    constellation weighs less in the combined solution. Only the relative
+    weights matter for the position.
+    """
+    if WEIGHT_MODEL == 'none':
+        return np.ones(len(satellites_data))
+    if WEIGHT_MODEL == 'system':
+        return np.array([1.0 / SYSTEM_SIGMA.get(sat['system'], 1.0) ** 2
+                         for sat in satellites_data])
+    sigma2 = np.array([
+        (ELEV_SIGMA_A ** 2 + ELEV_SIGMA_B ** 2 / np.sin(sat['elevation']) ** 2)
+        * SYSTEM_SIGMA.get(sat['system'], 1.0) ** 2
+        for sat in satellites_data])
+    return 1.0 / sigma2
 
 def solve_position(sv_data, station_approx, constellation, max_iter=10, threshold=1e-4):
     """
@@ -250,7 +273,11 @@ def solve_position(sv_data, station_approx, constellation, max_iter=10, threshol
         try:
             HtH = H.T @ H
             HtH_inv = np.linalg.inv(HtH)
-            delta_x = HtH_inv @ H.T @ delta_rho
+            # Weighted solution; HtH_inv stays unweighted so that the DOP
+            # factors keep describing geometry alone.
+            W = observation_weights(satellites_data)
+            HtW = H.T * W
+            delta_x = np.linalg.solve(HtW @ H, HtW @ delta_rho)
         except np.linalg.LinAlgError:
             return None  # Matriz singular
         
@@ -375,7 +402,11 @@ def solve_position_multi_gnss(satellites_data, station_approx, constellations, m
         try:
             HtH = H.T @ H
             HtH_inv = np.linalg.inv(HtH)
-            delta_x = HtH_inv @ H.T @ delta_rho
+            # Weighted solution; HtH_inv stays unweighted so that the DOP
+            # factors keep describing geometry alone.
+            W = observation_weights(satellites_data)
+            HtW = H.T * W
+            delta_x = np.linalg.solve(HtW @ H, HtW @ delta_rho)
 
         except np.linalg.LinAlgError:
             print("Singular normal matrix")
@@ -464,21 +495,21 @@ def process_all_epochs_with_hatch(obs_df, nav_df, position_approx, constellation
     for epoch in epochs:
         epoch_obs = obs_df.loc[epoch]
         
-        ecuaciones = calculate_ecuations_with_hatch(
+        equations = calculate_equations_with_hatch(
             epoch, epoch_obs, nav_df, position_approx, constellations, hatch
         )
 
         # None is returned when the epoch has fewer than 4 satellites. Without
         # this guard, a single poor epoch raised TypeError and the whole day was lost.
-        if ecuaciones is None:
+        if equations is None:
             continue
 
         for constellation in day.keys():
 
             if constellation == "all":
-                result = solve_position_multi_gnss(ecuaciones, position_approx, constellations)
+                result = solve_position_multi_gnss(equations, position_approx, constellations)
             else:
-                result = solve_position(ecuaciones, position_approx, constellation)
+                result = solve_position(equations, position_approx, constellation)
 
             # Keep it if valid
             if result is not None and result['converged'] and result['n_satellites'] >= 4:

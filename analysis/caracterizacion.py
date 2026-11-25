@@ -46,7 +46,7 @@ import numpy as np
 import pandas as pd
 
 from analysis.dataset import (CONSTELACIONES, DESDE, HASTA, ESTACIONES, METODOS,
-                        TARGETS, build_dataset)
+                        SW_ID, TARGETS, build_dataset)
 
 # Presentation order: from fewer to more constellations, and the estimators
 # grouped by family (simple, robust, weighted).
@@ -54,9 +54,9 @@ ORDEN_CONST = ["G", "E", "C", "GEC"]
 ORDEN_METODO = ["mean", "median", "mad", "weighted", "weighted_mad"]
 
 
-def cargar_todo(stations=None, desde=DESDE, hasta=HASTA, db=None):
+def cargar_todo(stations=None, desde=DESDE, hasta=HASTA, db=None, sw_id=SW_ID):
     """Full dataset, with no constellation or method fixed."""
-    df = build_dataset(stations or ESTACIONES, db=db)
+    df = build_dataset(stations or ESTACIONES, db=db, sw_id=sw_id)
     df = df[(df["date"] >= pd.Timestamp(desde)) & (df["date"] <= pd.Timestamp(hasta))]
     return df.reset_index(drop=True)
 
